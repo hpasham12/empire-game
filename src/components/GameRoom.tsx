@@ -23,20 +23,22 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
   const [category, setCategory] = useState('')
   const [wordInput, setWordInput] = useState('')
   const [submitted, setSubmitted] = useState(false)
+  const [roomId, setRoomId] = useState<string | null>(null)
 
-  // Initial fetch of room + players
+  // Fetch room + players, then set up real-time subscriptions — single room lookup
   useEffect(() => {
-    async function fetchRoomData() {
-      const { data: roomRow } = await supabase
-        .from('rooms')
-        .select('id, game_phase, category')
-        .eq('room_code', roomCode)
-        .single()
+    let channel: ReturnType<typeof supabase.channel> | null = null
+
+    async function init() {
+      const [{ data: roomRow }, ] = await Promise.all([
+        supabase.from('rooms').select('id, game_phase, category').eq('room_code', roomCode).single(),
+      ])
 
       if (!roomRow) return
 
       setGamePhase(roomRow.game_phase)
       if (roomRow.category) setCategory(roomRow.category)
+      setRoomId(roomRow.id)
 
       const { data: playerList } = await supabase
         .from('players')
@@ -49,34 +51,16 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
         if (me?.secret_word) setSubmitted(true)
       }
       setLoading(false)
-    }
 
-    fetchRoomData()
-  }, [roomCode])
-
-  // Real-time subscriptions for players + room phase/category
-  useEffect(() => {
-    let roomId: string | null = null
-
-    async function subscribe() {
-      const { data: roomRow } = await supabase
-        .from('rooms')
-        .select('id')
-        .eq('room_code', roomCode)
-        .single()
-
-      if (!roomRow) return
-      roomId = roomRow.id
-
-      const channel = supabase
-        .channel(`room-players-${roomId}`)
+      channel = supabase
+        .channel(`room-players-${roomRow.id}`)
         .on(
           'postgres_changes',
           {
             event: 'INSERT',
             schema: 'public',
             table: 'players',
-            filter: `room_id=eq.${roomId}`,
+            filter: `room_id=eq.${roomRow.id}`,
           },
           (payload) => {
             setPlayers(prev => [...prev, payload.new as Player])
@@ -88,7 +72,7 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
             event: 'UPDATE',
             schema: 'public',
             table: 'players',
-            filter: `room_id=eq.${roomId}`,
+            filter: `room_id=eq.${roomRow.id}`,
           },
           (payload) => {
             const updated = payload.new as Player
@@ -117,7 +101,7 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
             event: 'UPDATE',
             schema: 'public',
             table: 'rooms',
-            filter: `id=eq.${roomId}`,
+            filter: `id=eq.${roomRow.id}`,
           },
           (payload) => {
             const newRoom = payload.new as { game_phase: string; category: string }
@@ -130,16 +114,12 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
           }
         )
         .subscribe()
-
-      return channel
     }
 
-    const channelPromise = subscribe()
+    init()
 
     return () => {
-      channelPromise.then(channel => {
-        if (channel) supabase.removeChannel(channel)
-      })
+      if (channel) supabase.removeChannel(channel)
     }
   }, [roomCode, playerId, onLeave])
 
@@ -148,18 +128,12 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
   }
 
   async function handleStartGame() {
-    const { data: roomRow } = await supabase
-      .from('rooms')
-      .select('id')
-      .eq('room_code', roomCode)
-      .single()
-
-    if (!roomRow) return
+    if (!roomId) return
 
     const { error } = await supabase
       .from('rooms')
       .update({ game_phase: 'input', category: category.trim() })
-      .eq('id', roomRow.id)
+      .eq('id', roomId)
 
     if (!error) {
       setGamePhase('input')
@@ -177,18 +151,12 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
   }
 
   async function handleDistributeWords() {
-    const { data: roomRow } = await supabase
-      .from('rooms')
-      .select('id')
-      .eq('room_code', roomCode)
-      .single()
-
-    if (!roomRow) return
+    if (!roomId) return
 
     const { data: playerList } = await supabase
       .from('players')
       .select('id, secret_word')
-      .eq('room_id', roomRow.id)
+      .eq('room_id', roomId)
 
     if (!playerList || playerList.length === 0) return
 
@@ -212,42 +180,30 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
     await supabase
       .from('rooms')
       .update({ game_phase: 'reading' })
-      .eq('id', roomRow.id)
+      .eq('id', roomId)
   }
 
   async function handleStartGuessingPhase() {
-    const { data: roomRow } = await supabase
-      .from('rooms')
-      .select('id')
-      .eq('room_code', roomCode)
-      .single()
-
-    if (!roomRow) return
+    if (!roomId) return
 
     await supabase
       .from('rooms')
       .update({ game_phase: 'gameplay' })
-      .eq('id', roomRow.id)
+      .eq('id', roomId)
   }
 
   async function handleEndGame() {
-    const { data: roomRow } = await supabase
-      .from('rooms')
-      .select('id')
-      .eq('room_code', roomCode)
-      .single()
-
-    if (!roomRow) return
+    if (!roomId) return
 
     await supabase
       .from('players')
       .update({ secret_word: null, assigned_read_word: null })
-      .eq('room_id', roomRow.id)
+      .eq('room_id', roomId)
 
     await supabase
       .from('rooms')
       .update({ game_phase: 'lobby' })
-      .eq('id', roomRow.id)
+      .eq('id', roomId)
 
     setSubmitted(false)
     setWordInput('')
