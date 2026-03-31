@@ -100,7 +100,7 @@ export default function Home({ onEnterRoom }: HomeProps) {
     <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <h1 className="text-5xl font-bold text-center mb-2 tracking-tight">Empire</h1>
-        <p className="text-center text-gray-400 mb-10">A real-time party word game</p>
+        <p className="text-center text-gray-400 mb-10">A party game of memory and hidden identities</p>
 
         {mode === 'idle' && (
           <div className="flex flex-col gap-4">
