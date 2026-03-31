@@ -23,6 +23,7 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
   const [category, setCategory] = useState('')
   const [wordInput, setWordInput] = useState('')
   const [submitted, setSubmitted] = useState(false)
+  const [peeking, setPeeking] = useState(false)
 
   // Initial fetch of room + players
   useEffect(() => {
@@ -200,8 +201,31 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
 
     await supabase
       .from('rooms')
-      .update({ game_phase: 'guessing' })
+      .update({ game_phase: 'gameplay' })
       .eq('id', roomRow.id)
+  }
+
+  async function handleEndGame() {
+    const { data: roomRow } = await supabase
+      .from('rooms')
+      .select('id')
+      .eq('room_code', roomCode)
+      .single()
+
+    if (!roomRow) return
+
+    await supabase
+      .from('players')
+      .update({ secret_word: null, assigned_read_word: null })
+      .eq('room_id', roomRow.id)
+
+    await supabase
+      .from('rooms')
+      .update({ game_phase: 'lobby' })
+      .eq('id', roomRow.id)
+
+    setSubmitted(false)
+    setWordInput('')
   }
 
   if (loading) {
@@ -411,15 +435,45 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
     )
   }
 
-  // Placeholder for other game phases
-  return (
-    <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-4">
-      <div className="text-center">
-        <p className="text-gray-400">Game phase: <span className="text-white font-semibold">{gamePhase}</span></p>
-        <button onClick={onLeave} className="mt-4 text-gray-600 hover:text-gray-400 text-sm">
-          Leave
-        </button>
+  if (gamePhase === 'gameplay') {
+    const me = players.find(p => p.id === playerId)
+    const mySecretWord = me?.secret_word ?? ''
+
+    return (
+      <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-4">
+        <div className="w-full max-w-md flex flex-col items-center gap-6 text-center">
+          <div>
+            <p className="text-3xl font-bold text-white mb-2">Gameplay in progress.</p>
+            <p className="text-gray-400 text-lg">Put your phones down and start guessing!</p>
+          </div>
+
+          <button
+            onMouseDown={() => setPeeking(true)}
+            onMouseUp={() => setPeeking(false)}
+            onMouseLeave={() => setPeeking(false)}
+            onTouchStart={() => setPeeking(true)}
+            onTouchEnd={() => setPeeking(false)}
+            className="text-sm text-gray-500 hover:text-gray-300 border border-gray-700 rounded-lg px-4 py-2 transition-colors select-none"
+          >
+            {peeking ? (
+              <span className="text-indigo-300 font-semibold">{mySecretWord}</span>
+            ) : (
+              'Peek at my secret word'
+            )}
+          </button>
+
+          {isHost && (
+            <button
+              onClick={handleEndGame}
+              className="w-full bg-rose-700 hover:bg-rose-600 transition-colors rounded-xl py-3 font-semibold mt-4"
+            >
+              End Game / Play Again
+            </button>
+          )}
+        </div>
       </div>
-    </div>
-  )
+    )
+  }
+
+  return null
 }
