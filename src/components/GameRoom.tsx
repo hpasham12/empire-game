@@ -6,6 +6,7 @@ interface Player {
   nickname: string
   is_host: boolean
   secret_word: string | null
+  assigned_read_word: string | null
 }
 
 interface GameRoomProps {
@@ -47,7 +48,7 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
 
       const { data: playerList } = await supabase
         .from('players')
-        .select('id, nickname, is_host, secret_word')
+        .select('id, nickname, is_host, secret_word, assigned_read_word')
         .eq('room_id', roomRow.id)
 
       if (playerList) {
@@ -88,7 +89,7 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
           async () => {
             const { data } = await supabase
               .from('players')
-              .select('id, nickname, is_host, secret_word')
+              .select('id, nickname, is_host, secret_word, assigned_read_word')
               .eq('room_id', roomId!)
             if (data) setPlayers(data)
           }
@@ -150,7 +151,57 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
   }
 
   async function handleDistributeWords() {
-    // TODO: implement word distribution logic for next phase
+    const { data: roomRow } = await supabase
+      .from('rooms')
+      .select('id')
+      .eq('room_code', roomCode)
+      .single()
+
+    if (!roomRow) return
+
+    const { data: playerList } = await supabase
+      .from('players')
+      .select('id, secret_word')
+      .eq('room_id', roomRow.id)
+
+    if (!playerList || playerList.length === 0) return
+
+    // Shuffle words (Fisher-Yates)
+    const words = playerList.map(p => p.secret_word as string)
+    for (let i = words.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[words[i], words[j]] = [words[j], words[i]]
+    }
+
+    // Assign shuffled words to each player
+    await Promise.all(
+      playerList.map((p, i) =>
+        supabase
+          .from('players')
+          .update({ assigned_read_word: words[i] })
+          .eq('id', p.id)
+      )
+    )
+
+    await supabase
+      .from('rooms')
+      .update({ game_phase: 'reading' })
+      .eq('id', roomRow.id)
+  }
+
+  async function handleStartGuessingPhase() {
+    const { data: roomRow } = await supabase
+      .from('rooms')
+      .select('id')
+      .eq('room_code', roomCode)
+      .single()
+
+    if (!roomRow) return
+
+    await supabase
+      .from('rooms')
+      .update({ game_phase: 'guessing' })
+      .eq('id', roomRow.id)
   }
 
   if (loading) {
@@ -324,6 +375,36 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
                 Distribute Words
               </button>
             </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  if (gamePhase === 'reading') {
+    const me = players.find(p => p.id === playerId)
+    const myWord = me?.assigned_read_word ?? ''
+
+    return (
+      <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-4">
+        <div className="w-full max-w-md flex flex-col items-center gap-6">
+          <div className="text-center">
+            <p className="text-gray-400 text-sm uppercase tracking-widest mb-1">Your Word</p>
+            <div className="bg-gray-900 border border-gray-700 rounded-2xl px-10 py-10 mt-2">
+              <p className="text-5xl font-bold text-indigo-400 tracking-wide">{myWord}</p>
+            </div>
+            <p className="text-gray-500 text-sm mt-4">
+              Read this word aloud to the group when it is your turn.
+            </p>
+          </div>
+
+          {isHost && (
+            <button
+              onClick={handleStartGuessingPhase}
+              className="w-full bg-emerald-600 hover:bg-emerald-500 transition-colors rounded-xl py-3 font-semibold"
+            >
+              Start Guessing Phase
+            </button>
           )}
         </div>
       </div>
