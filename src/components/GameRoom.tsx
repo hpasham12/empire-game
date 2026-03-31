@@ -130,10 +130,14 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
 
     if (!roomRow) return
 
-    await supabase
+    const { error } = await supabase
       .from('rooms')
       .update({ game_phase: 'input', category: category.trim() })
       .eq('id', roomRow.id)
+
+    if (!error) {
+      setGamePhase('input')
+    }
   }
 
   async function handleSubmitWord() {
