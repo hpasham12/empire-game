@@ -1,15 +1,340 @@
+import { useEffect, useState } from 'react'
+import { supabase } from '../supabaseClient'
+
+interface Player {
+  id: string
+  nickname: string
+  is_host: boolean
+  secret_word: string | null
+}
+
 interface GameRoomProps {
   roomCode: string
   playerId: string
+  isHost: boolean
   onLeave: () => void
 }
 
-export default function GameRoom({ roomCode, playerId, onLeave }: GameRoomProps) {
+export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRoomProps) {
+  const [players, setPlayers] = useState<Player[]>([])
+  const [gamePhase, setGamePhase] = useState<string>('lobby')
+  const [loading, setLoading] = useState(true)
+  const [category, setCategory] = useState('')
+  const [wordInput, setWordInput] = useState('')
+  const [submitted, setSubmitted] = useState(false)
+
+  // Initial fetch of room + players
+  useEffect(() => {
+    async function fetchRoomData() {
+      const { data: room } = await supabase
+        .from('rooms')
+        .select('game_phase, category')
+        .eq('room_code', roomCode)
+        .single()
+
+      if (room) {
+        setGamePhase(room.game_phase)
+        if (room.category) setCategory(room.category)
+      }
+
+      const { data: roomRow } = await supabase
+        .from('rooms')
+        .select('id')
+        .eq('room_code', roomCode)
+        .single()
+
+      if (!roomRow) return
+
+      const { data: playerList } = await supabase
+        .from('players')
+        .select('id, nickname, is_host, secret_word')
+        .eq('room_id', roomRow.id)
+
+      if (playerList) {
+        setPlayers(playerList)
+        const me = playerList.find(p => p.id === playerId)
+        if (me?.secret_word) setSubmitted(true)
+      }
+      setLoading(false)
+    }
+
+    fetchRoomData()
+  }, [roomCode])
+
+  // Real-time subscriptions for players + room phase/category
+  useEffect(() => {
+    let roomId: string | null = null
+
+    async function subscribe() {
+      const { data: roomRow } = await supabase
+        .from('rooms')
+        .select('id')
+        .eq('room_code', roomCode)
+        .single()
+
+      if (!roomRow) return
+      roomId = roomRow.id
+
+      const channel = supabase
+        .channel(`room-players-${roomId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'players',
+            filter: `room_id=eq.${roomId}`,
+          },
+          async () => {
+            const { data } = await supabase
+              .from('players')
+              .select('id, nickname, is_host, secret_word')
+              .eq('room_id', roomId!)
+            if (data) setPlayers(data)
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'rooms',
+            filter: `id=eq.${roomId}`,
+          },
+          (payload) => {
+            const newRoom = payload.new as { game_phase: string; category: string }
+            setGamePhase(newRoom.game_phase)
+            if (newRoom.category) setCategory(newRoom.category)
+          }
+        )
+        .subscribe()
+
+      return channel
+    }
+
+    const channelPromise = subscribe()
+
+    return () => {
+      channelPromise.then(channel => {
+        if (channel) supabase.removeChannel(channel)
+      })
+    }
+  }, [roomCode])
+
+  async function handleStartGame() {
+    const { data: roomRow } = await supabase
+      .from('rooms')
+      .select('id')
+      .eq('room_code', roomCode)
+      .single()
+
+    if (!roomRow) return
+
+    await supabase
+      .from('rooms')
+      .update({ game_phase: 'input', category: category.trim() })
+      .eq('id', roomRow.id)
+  }
+
+  async function handleSubmitWord() {
+    if (!wordInput.trim()) return
+    await supabase
+      .from('players')
+      .update({ secret_word: wordInput.trim() })
+      .eq('id', playerId)
+    setSubmitted(true)
+  }
+
+  async function handleDistributeWords() {
+    // TODO: implement word distribution logic for next phase
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center">
+        <p className="text-gray-400">Loading room…</p>
+      </div>
+    )
+  }
+
+  if (gamePhase === 'lobby') {
+    return (
+      <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-4">
+        <div className="w-full max-w-md">
+          {/* Room code */}
+          <div className="text-center mb-8">
+            <p className="text-gray-400 text-sm uppercase tracking-widest mb-1">Room Code</p>
+            <p className="text-6xl font-bold tracking-[0.2em] text-indigo-400">{roomCode}</p>
+            <p className="text-gray-500 text-sm mt-2">Share this code with your friends</p>
+          </div>
+
+          {/* Player list */}
+          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-5 mb-5">
+            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-widest mb-4">
+              Players — {players.length}
+            </h2>
+            <ul className="flex flex-col gap-2">
+              {players.map(p => (
+                <li
+                  key={p.id}
+                  className="flex items-center justify-between bg-gray-800 rounded-lg px-4 py-2.5"
+                >
+                  <span className="font-medium">
+                    {p.nickname}
+                    {p.id === playerId && (
+                      <span className="ml-2 text-xs text-gray-500">(you)</span>
+                    )}
+                  </span>
+                  {p.is_host && (
+                    <span className="text-xs bg-indigo-900 text-indigo-300 px-2 py-0.5 rounded-full">
+                      Host
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+
+            {players.length < 2 && (
+              <p className="text-gray-600 text-sm text-center mt-4">
+                Waiting for more players to join…
+              </p>
+            )}
+          </div>
+
+          {/* Start game — host only */}
+          {isHost && (
+            <div className="mb-3">
+              <label className="block text-sm text-gray-400 mb-1.5">
+                Enter Category <span className="text-gray-600">(e.g., Famous People, Movies)</span>
+              </label>
+              <input
+                type="text"
+                placeholder="Famous People"
+                value={category}
+                onChange={e => setCategory(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-3"
+              />
+              <button
+                onClick={handleStartGame}
+                disabled={players.length < 2 || !category.trim()}
+                className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors rounded-xl py-3 font-semibold"
+              >
+                Start Game
+              </button>
+            </div>
+          )}
+
+          {!isHost && (
+            <p className="text-center text-gray-600 text-sm mb-3">
+              Waiting for the host to start the game…
+            </p>
+          )}
+
+          <button
+            onClick={onLeave}
+            className="w-full text-gray-600 hover:text-gray-400 text-sm py-2 transition-colors"
+          >
+            Leave Room
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (gamePhase === 'input') {
+    const submittedCount = players.filter(p => p.secret_word).length
+    const allSubmitted = players.length > 0 && submittedCount === players.length
+
+    return (
+      <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-4">
+        <div className="w-full max-w-md">
+          {/* Category display */}
+          <div className="text-center mb-8">
+            <p className="text-gray-400 text-sm uppercase tracking-widest mb-1">Current Category</p>
+            <p className="text-4xl font-bold text-indigo-400">{category}</p>
+          </div>
+
+          {/* Secret word input or confirmation */}
+          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-5 mb-5">
+            {submitted ? (
+              <div className="text-center py-4">
+                <p className="text-green-400 font-semibold text-lg mb-1">Word submitted!</p>
+                <p className="text-gray-500 text-sm">Waiting for other players…</p>
+              </div>
+            ) : (
+              <>
+                <label className="block text-sm text-gray-400 mb-1.5">
+                  Your secret word
+                </label>
+                <input
+                  type="text"
+                  placeholder={`A ${category} name…`}
+                  value={wordInput}
+                  onChange={e => setWordInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleSubmitWord()}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-3"
+                  autoFocus
+                />
+                <button
+                  onClick={handleSubmitWord}
+                  disabled={!wordInput.trim()}
+                  className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors rounded-xl py-3 font-semibold"
+                >
+                  Submit
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* Host-only: submission progress + distribute button */}
+          {isHost && (
+            <div className="bg-gray-900 rounded-2xl border border-gray-800 p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-widest">
+                  Player Progress
+                </h2>
+                <span className={`text-sm font-bold ${allSubmitted ? 'text-green-400' : 'text-gray-300'}`}>
+                  {submittedCount}/{players.length} ready
+                </span>
+              </div>
+              <ul className="flex flex-col gap-2 mb-4">
+                {players.map(p => (
+                  <li
+                    key={p.id}
+                    className="flex items-center justify-between bg-gray-800 rounded-lg px-4 py-2"
+                  >
+                    <span className="text-sm font-medium">{p.nickname}</span>
+                    {p.secret_word ? (
+                      <span className="text-green-400 text-xs font-semibold">Ready ✓</span>
+                    ) : (
+                      <span className="text-gray-600 text-xs">Waiting…</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              <button
+                onClick={handleDistributeWords}
+                disabled={!allSubmitted}
+                className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors rounded-xl py-3 font-semibold"
+              >
+                Distribute Words
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // Placeholder for other game phases
   return (
-    <div>
-      <h1>Room: {roomCode}</h1>
-      <p>Player ID: {playerId}</p>
-      <button onClick={onLeave}>Leave Room</button>
+    <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-4">
+      <div className="text-center">
+        <p className="text-gray-400">Game phase: <span className="text-white font-semibold">{gamePhase}</span></p>
+        <button onClick={onLeave} className="mt-4 text-gray-600 hover:text-gray-400 text-sm">
+          Leave
+        </button>
+      </div>
     </div>
   )
 }

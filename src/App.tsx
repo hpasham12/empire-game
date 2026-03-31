@@ -8,16 +8,19 @@ export default function App() {
   const [view, setView] = useState<View>('home')
   const [roomCode, setRoomCode] = useState('')
   const [playerId, setPlayerId] = useState('')
+  const [isHost, setIsHost] = useState(false)
 
-  function handleEnterRoom(code: string, pid: string) {
+  function handleEnterRoom(code: string, pid: string, host: boolean) {
     setRoomCode(code)
     setPlayerId(pid)
+    setIsHost(host)
     setView('game')
   }
 
   function handleLeave() {
     setRoomCode('')
     setPlayerId('')
+    setIsHost(false)
     setView('home')
   }
 
@@ -26,6 +29,7 @@ export default function App() {
       <GameRoom
         roomCode={roomCode}
         playerId={playerId}
+        isHost={isHost}
         onLeave={handleLeave}
       />
     )
