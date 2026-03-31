@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import type { Player } from '../types/game'
 import LobbyPhase from './phases/LobbyPhase'
 import InputPhase from './phases/InputPhase'
 import ReadingPhase from './phases/ReadingPhase'
 import GameplayPhase from './phases/GameplayPhase'
+import InstructionsModal from './InstructionsModal'
 
 interface GameRoomProps {
   roomCode: string
@@ -16,6 +17,7 @@ interface GameRoomProps {
 export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRoomProps) {
   const [players, setPlayers] = useState<Player[]>([])
   const [gamePhase, setGamePhase] = useState<string>('lobby')
+  const [showInstructions, setShowInstructions] = useState(false)
   const [loading, setLoading] = useState(true)
   const [category, setCategory] = useState('')
   const [wordInput, setWordInput] = useState('')
@@ -133,16 +135,16 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
     setWordInput('')
   }
 
+  let content: React.ReactNode = null
+
   if (loading) {
-    return (
+    content = (
       <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center">
         <p className="text-gray-400">Loading room…</p>
       </div>
     )
-  }
-
-  if (gamePhase === 'lobby') {
-    return (
+  } else if (gamePhase === 'lobby') {
+    content = (
       <LobbyPhase
         roomCode={roomCode}
         playerId={playerId}
@@ -155,10 +157,8 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
         onLeave={onLeave}
       />
     )
-  }
-
-  if (gamePhase === 'input') {
-    return (
+  } else if (gamePhase === 'input') {
+    content = (
       <InputPhase
         playerId={playerId}
         isHost={isHost}
@@ -171,10 +171,8 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
         onDistributeWords={handleDistributeWords}
       />
     )
-  }
-
-  if (gamePhase === 'reading') {
-    return (
+  } else if (gamePhase === 'reading') {
+    content = (
       <ReadingPhase
         playerId={playerId}
         isHost={isHost}
@@ -182,10 +180,8 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
         onStartGuessingPhase={handleStartGuessingPhase}
       />
     )
-  }
-
-  if (gamePhase === 'gameplay') {
-    return (
+  } else if (gamePhase === 'gameplay') {
+    content = (
       <GameplayPhase
         playerId={playerId}
         isHost={isHost}
@@ -195,5 +191,17 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
     )
   }
 
-  return null
+  return (
+    <>
+      {content}
+      <button
+        onClick={() => setShowInstructions(true)}
+        className="fixed bottom-4 right-4 z-40 bg-gray-800 hover:bg-gray-700 text-white text-sm font-medium px-4 py-2 rounded-full shadow-lg border border-gray-600 transition-colors"
+        aria-label="How to play"
+      >
+        ? How to Play
+      </button>
+      {showInstructions && <InstructionsModal onClose={() => setShowInstructions(false)} />}
+    </>
+  )
 }
