@@ -23,29 +23,20 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
   const [category, setCategory] = useState('')
   const [wordInput, setWordInput] = useState('')
   const [submitted, setSubmitted] = useState(false)
-  const [peeking, setPeeking] = useState(false)
 
   // Initial fetch of room + players
   useEffect(() => {
     async function fetchRoomData() {
-      const { data: room } = await supabase
-        .from('rooms')
-        .select('game_phase, category')
-        .eq('room_code', roomCode)
-        .single()
-
-      if (room) {
-        setGamePhase(room.game_phase)
-        if (room.category) setCategory(room.category)
-      }
-
       const { data: roomRow } = await supabase
         .from('rooms')
-        .select('id')
+        .select('id, game_phase, category')
         .eq('room_code', roomCode)
         .single()
 
       if (!roomRow) return
+
+      setGamePhase(roomRow.game_phase)
+      if (roomRow.category) setCategory(roomRow.category)
 
       const { data: playerList } = await supabase
         .from('players')
@@ -82,17 +73,42 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
         .on(
           'postgres_changes',
           {
-            event: '*',
+            event: 'INSERT',
             schema: 'public',
             table: 'players',
             filter: `room_id=eq.${roomId}`,
           },
-          async () => {
-            const { data } = await supabase
-              .from('players')
-              .select('id, nickname, is_host, secret_word, assigned_read_word')
-              .eq('room_id', roomId!)
-            if (data) setPlayers(data)
+          (payload) => {
+            setPlayers(prev => [...prev, payload.new as Player])
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'players',
+            filter: `room_id=eq.${roomId}`,
+          },
+          (payload) => {
+            const updated = payload.new as Player
+            setPlayers(prev => prev.map(p => p.id === updated.id ? updated : p))
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'DELETE',
+            schema: 'public',
+            table: 'players',
+          },
+          (payload) => {
+            const deleted = payload.old as { id: string }
+            if (deleted.id === playerId) {
+              onLeave()
+              return
+            }
+            setPlayers(prev => prev.filter(p => p.id !== deleted.id))
           }
         )
         .on(
@@ -107,6 +123,10 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
             const newRoom = payload.new as { game_phase: string; category: string }
             setGamePhase(newRoom.game_phase)
             if (newRoom.category) setCategory(newRoom.category)
+            if (newRoom.game_phase === 'lobby' || newRoom.game_phase === 'input') {
+              setSubmitted(false)
+              setWordInput('')
+            }
           }
         )
         .subscribe()
@@ -121,7 +141,11 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
         if (channel) supabase.removeChannel(channel)
       })
     }
-  }, [roomCode])
+  }, [roomCode, playerId, onLeave])
+
+  async function handleRemovePlayer(id: string) {
+    await supabase.from('players').delete().eq('id', id)
+  }
 
   async function handleStartGame() {
     const { data: roomRow } = await supabase
@@ -144,6 +168,7 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
 
   async function handleSubmitWord() {
     if (!wordInput.trim()) return
+    if (!players.some(p => p.id === playerId)) return
     await supabase
       .from('players')
       .update({ secret_word: wordInput.trim() })
@@ -264,11 +289,22 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
                       <span className="ml-2 text-xs text-gray-500">(you)</span>
                     )}
                   </span>
-                  {p.is_host && (
-                    <span className="text-xs bg-indigo-900 text-indigo-300 px-2 py-0.5 rounded-full">
-                      Host
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {p.is_host && (
+                      <span className="text-xs bg-indigo-900 text-indigo-300 px-2 py-0.5 rounded-full">
+                        Host
+                      </span>
+                    )}
+                    {isHost && !p.is_host && (
+                      <button
+                        onClick={() => handleRemovePlayer(p.id)}
+                        className="text-gray-600 hover:text-rose-400 transition-colors text-xs px-1.5"
+                        title="Remove player"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>
@@ -447,20 +483,9 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
             <p className="text-gray-400 text-lg">Put your phones down and start guessing!</p>
           </div>
 
-          <button
-            onMouseDown={() => setPeeking(true)}
-            onMouseUp={() => setPeeking(false)}
-            onMouseLeave={() => setPeeking(false)}
-            onTouchStart={() => setPeeking(true)}
-            onTouchEnd={() => setPeeking(false)}
-            className="text-sm text-gray-500 hover:text-gray-300 border border-gray-700 rounded-lg px-4 py-2 transition-colors select-none"
-          >
-            {peeking ? (
-              <span className="text-indigo-300 font-semibold">{mySecretWord}</span>
-            ) : (
-              'Peek at my secret word'
-            )}
-          </button>
+          <p className="text-gray-400 text-sm">
+            My word: <span className="text-indigo-300 font-semibold">{mySecretWord}</span>
+          </p>
 
           {isHost && (
             <button
