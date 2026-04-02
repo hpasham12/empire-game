@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import type { Player } from '../types/game'
 import LobbyPhase from './phases/LobbyPhase'
@@ -23,6 +23,7 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
   const [wordInput, setWordInput] = useState('')
   const [submitted, setSubmitted] = useState(false)
   const [roomId, setRoomId] = useState<string | null>(null)
+  const hostIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     let channel: ReturnType<typeof supabase.channel> | null = null
@@ -47,6 +48,7 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
 
       if (playerList) {
         setPlayers(playerList)
+        hostIdRef.current = playerList.find(p => p.is_host)?.id ?? null
         const me = playerList.find(p => p.id === playerId)
         if (me?.secret_word) setSubmitted(true)
       }
@@ -64,6 +66,7 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
         .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'players' }, (payload) => {
           const deleted = payload.old as { id: string }
           if (deleted.id === playerId) { onLeave(); return }
+          if (deleted.id === hostIdRef.current) { onLeave(); return }
           setPlayers(prev => prev.filter(p => p.id !== deleted.id))
         })
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${roomRow.id}` }, (payload) => {
