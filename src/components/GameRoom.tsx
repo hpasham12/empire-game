@@ -85,6 +85,11 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
     return () => { if (channel) supabase.removeChannel(channel) }
   }, [roomCode, playerId, onLeave])
 
+  async function handleSelfLeave() {
+    await supabase.from('players').delete().eq('id', playerId)
+    onLeave()
+  }
+
   async function handleRemovePlayer(id: string) {
     await supabase.from('players').delete().eq('id', id)
   }
@@ -97,7 +102,7 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
 
   async function handleSubmitWord() {
     if (!wordInput.trim() || !players.some(p => p.id === playerId)) return
-    await supabase.from('players').update({ secret_word: wordInput.trim() }).eq('id', playerId)
+    await supabase.from('players').update({ secret_word: wordInput.trim().toLowerCase() }).eq('id', playerId)
     setSubmitted(true)
   }
 
@@ -157,7 +162,7 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
         onCategoryChange={setCategory}
         onStartGame={handleStartGame}
         onRemovePlayer={handleRemovePlayer}
-        onLeave={onLeave}
+        onLeave={handleSelfLeave}
       />
     )
   } else if (gamePhase === 'input') {
