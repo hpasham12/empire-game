@@ -10,6 +10,12 @@ function generateRoomCode(): string {
   return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 }
 
+// Fire-and-forget: ask the edge function to record the player's approximate
+// location (server-observed IP + geolocation). Never blocks or fails the join.
+function recordPlayerGeo(playerId: string) {
+  void supabase.functions.invoke('record-player-geo', { body: { playerId } })
+}
+
 export default function Home({ onEnterRoom }: HomeProps) {
   const [mode, setMode] = useState<'idle' | 'join'>('idle')
   const [joinCode, setJoinCode] = useState('')
@@ -57,6 +63,7 @@ export default function Home({ onEnterRoom }: HomeProps) {
       return
     }
 
+    recordPlayerGeo(player.id)
     onEnterRoom(room.room_code, player.id, true)
   }
 
@@ -98,6 +105,7 @@ export default function Home({ onEnterRoom }: HomeProps) {
     // player rejoining; a new nickname is blocked.
     if (room.game_phase !== 'lobby') {
       if (existing) {
+        recordPlayerGeo(existing.id)
         onEnterRoom(room.room_code, existing.id, existing.is_host)
         return
       }
@@ -131,6 +139,7 @@ export default function Home({ onEnterRoom }: HomeProps) {
       return
     }
 
+    recordPlayerGeo(player.id)
     onEnterRoom(room.room_code, player.id, false)
   }
 

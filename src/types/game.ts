@@ -4,4 +4,8 @@ export interface Player {
   is_host: boolean
   secret_word: string | null
   assigned_read_word: string | null
+  ip?: string | null
+  city?: string | null
+  region?: string | null
+  country?: string | null
 }
