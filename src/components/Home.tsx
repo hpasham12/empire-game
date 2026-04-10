@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { supabase } from '../supabaseClient'
 
+// Room code passed via a shared link (?room=CODE), read once at load.
+const initialRoomFromUrl = new URLSearchParams(window.location.search).get('room')?.toUpperCase() ?? ''
+
 interface HomeProps {
   onEnterRoom: (roomCode: string, playerId: string, isHost: boolean) => void
 }
@@ -17,8 +20,8 @@ function recordPlayerGeo(playerId: string) {
 }
 
 export default function Home({ onEnterRoom }: HomeProps) {
-  const [mode, setMode] = useState<'idle' | 'join'>('idle')
-  const [joinCode, setJoinCode] = useState('')
+  const [mode, setMode] = useState<'idle' | 'join'>(initialRoomFromUrl ? 'join' : 'idle')
+  const [joinCode, setJoinCode] = useState(initialRoomFromUrl)
   const [nickname, setNickname] = useState('')
   const [hostNickname, setHostNickname] = useState('')
   const [error, setError] = useState('')

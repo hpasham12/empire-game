@@ -20,6 +20,12 @@ export default function App() {
       const urlParams = new URLSearchParams(window.location.search)
       const urlRoomCode = urlParams.get('room')
 
+      // Arriving via a shared link for a *different* room than our saved
+      // session: don't auto-rejoin the old room — let Home prefill the new code.
+      if (urlRoomCode && savedRoomCode && urlRoomCode.toUpperCase() !== savedRoomCode.toUpperCase()) {
+        return
+      }
+
       const playerIdToUse = savedPlayerId
       const roomCodeToUse = savedRoomCode || urlRoomCode
 
