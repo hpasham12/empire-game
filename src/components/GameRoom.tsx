@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import type { Player, PlayerSecret } from '../types/game'
 import LobbyPhase from './phases/LobbyPhase'
@@ -25,7 +25,10 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
   const [roomId, setRoomId] = useState<string | null>(null)
   // This player's private words, kept in a separate owner-only table.
   const [mySecret, setMySecret] = useState<PlayerSecret>({ secret_word: null, assigned_read_word: null })
-  const hostIdRef = useRef<string | null>(null)
+
+  // Host status is derived live from the players list so a promoted player
+  // (after the previous host leaves) immediately gets host controls.
+  const amHost = players.find(p => p.id === playerId)?.is_host ?? isHost
 
   useEffect(() => {
     let channel: ReturnType<typeof supabase.channel> | null = null
@@ -50,7 +53,6 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
 
       if (playerList) {
         setPlayers(playerList)
-        hostIdRef.current = playerList.find(p => p.is_host)?.id ?? null
         const me = playerList.find(p => p.id === playerId)
         if (me?.has_submitted) setSubmitted(true)
       }
@@ -76,8 +78,9 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
         })
         .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'players' }, (payload) => {
           const deleted = payload.old as { id: string }
+          // Only leave if *this* player's row was removed (self-leave or kicked).
+          // A host leaving no longer ejects everyone — the host role is reassigned.
           if (deleted.id === playerId) { onLeave(); return }
-          if (deleted.id === hostIdRef.current) { onLeave(); return }
           setPlayers(prev => prev.filter(p => p.id !== deleted.id))
         })
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${roomRow.id}` }, (payload) => {
@@ -88,6 +91,11 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
             setSubmitted(false)
             setWordInput('')
           }
+        })
+        .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'rooms' }, (payload) => {
+          // Host ended the game: the room row is gone, so everyone exits.
+          const deleted = payload.old as { id: string }
+          if (deleted.id === roomRow.id) onLeave()
         })
         .on('postgres_changes', { event: '*', schema: 'public', table: 'player_secrets', filter: `player_id=eq.${playerId}` }, (payload) => {
           const row = payload.new as PlayerSecret
@@ -100,8 +108,15 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
     return () => { if (channel) supabase.removeChannel(channel) }
   }, [roomCode, playerId, onLeave])
 
-  async function handleSelfLeave() {
-    await supabase.from('players').delete().eq('id', playerId)
+  async function handleLeaveRoom() {
+    if (amHost && roomId) {
+      // Host leaving: reassign the host role to another player (and delete the
+      // now-empty room if nobody is left) — done server-side since it touches
+      // rows the host doesn't own.
+      await supabase.functions.invoke('leave-room', { body: { roomId } })
+    } else {
+      await supabase.from('players').delete().eq('id', playerId)
+    }
     onLeave()
   }
 
@@ -140,14 +155,22 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
     await supabase.from('rooms').update({ game_phase: 'gameplay' }).eq('id', roomId)
   }
 
-  async function handleEndGame() {
+  async function handlePlayAgain() {
     if (!roomId) return
-    // Clearing every player's secrets + resetting the round touches rows the
-    // host doesn't own, so it runs server-side.
+    // Reset the round back to the lobby (same room). Clearing every player's
+    // secrets + flags touches rows the host doesn't own, so it runs server-side.
     await supabase.functions.invoke('reset-round', { body: { roomId } })
     setMySecret({ secret_word: null, assigned_read_word: null })
     setSubmitted(false)
     setWordInput('')
+  }
+
+  async function handleEndGame() {
+    if (!roomId) return
+    // End for everyone: delete the room (and all its players/secrets). Every
+    // client exits via the room-DELETE subscription.
+    await supabase.functions.invoke('end-game', { body: { roomId } })
+    onLeave()
   }
 
   let content: React.ReactNode = null
@@ -163,20 +186,20 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
       <LobbyPhase
         roomCode={roomCode}
         playerId={playerId}
-        isHost={isHost}
+        isHost={amHost}
         players={players}
         category={category}
         onCategoryChange={setCategory}
         onStartGame={handleStartGame}
         onRemovePlayer={handleRemovePlayer}
-        onLeave={handleSelfLeave}
+        onLeave={handleLeaveRoom}
       />
     )
   } else if (gamePhase === 'input') {
     content = (
       <InputPhase
         playerId={playerId}
-        isHost={isHost}
+        isHost={amHost}
         players={players}
         category={category}
         submitted={submitted}
@@ -189,7 +212,7 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
   } else if (gamePhase === 'reading') {
     content = (
       <ReadingPhase
-        isHost={isHost}
+        isHost={amHost}
         assignedWord={mySecret.assigned_read_word ?? ''}
         onStartGuessingPhase={handleStartGuessingPhase}
       />
@@ -197,9 +220,11 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
   } else if (gamePhase === 'gameplay') {
     content = (
       <GameplayPhase
-        isHost={isHost}
+        isHost={amHost}
         secretWord={mySecret.secret_word ?? ''}
+        onPlayAgain={handlePlayAgain}
         onEndGame={handleEndGame}
+        onLeave={handleLeaveRoom}
       />
     )
   }

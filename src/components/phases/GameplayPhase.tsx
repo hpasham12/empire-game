@@ -1,10 +1,12 @@
 interface GameplayPhaseProps {
   isHost: boolean
   secretWord: string
+  onPlayAgain: () => void
   onEndGame: () => void
+  onLeave: () => void
 }
 
-export default function GameplayPhase({ isHost, secretWord, onEndGame }: GameplayPhaseProps) {
+export default function GameplayPhase({ isHost, secretWord, onPlayAgain, onEndGame, onLeave }: GameplayPhaseProps) {
   const mySecretWord = secretWord
 
   return (
@@ -19,14 +21,30 @@ export default function GameplayPhase({ isHost, secretWord, onEndGame }: Gamepla
           My word: <span className="text-indigo-300 font-semibold">{mySecretWord}</span>
         </p>
 
-        {isHost && (
+        <div className="w-full flex flex-col gap-3 mt-4">
+          {isHost && (
+            <>
+              <button
+                onClick={onPlayAgain}
+                className="w-full bg-emerald-600 hover:bg-emerald-500 transition-colors rounded-xl py-3 font-semibold"
+              >
+                Play Again
+              </button>
+              <button
+                onClick={onEndGame}
+                className="w-full bg-rose-700 hover:bg-rose-600 transition-colors rounded-xl py-3 font-semibold"
+              >
+                End Game
+              </button>
+            </>
+          )}
           <button
-            onClick={onEndGame}
-            className="w-full bg-rose-700 hover:bg-rose-600 transition-colors rounded-xl py-3 font-semibold mt-4"
+            onClick={onLeave}
+            className="w-full text-gray-600 hover:text-gray-400 text-sm py-2 transition-colors"
           >
-            End Game / Play Again
+            Leave Room
           </button>
-        )}
+        </div>
       </div>
     </div>
   )
