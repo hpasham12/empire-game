@@ -1,15 +1,11 @@
-import type { Player } from '../../types/game'
-
 interface ReadingPhaseProps {
-  playerId: string
   isHost: boolean
-  players: Player[]
+  assignedWord: string
   onStartGuessingPhase: () => void
 }
 
-export default function ReadingPhase({ playerId, isHost, players, onStartGuessingPhase }: ReadingPhaseProps) {
-  const me = players.find(p => p.id === playerId)
-  const myWord = me?.assigned_read_word ?? ''
+export default function ReadingPhase({ isHost, assignedWord, onStartGuessingPhase }: ReadingPhaseProps) {
+  const myWord = assignedWord
 
   return (
     <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-4">

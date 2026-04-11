@@ -19,6 +19,11 @@ function recordPlayerGeo(playerId: string) {
   void supabase.functions.invoke('record-player-geo', { body: { playerId } })
 }
 
+async function currentUserId(): Promise<string | null> {
+  const { data } = await supabase.auth.getUser()
+  return data.user?.id ?? null
+}
+
 export default function Home({ onEnterRoom }: HomeProps) {
   const [mode, setMode] = useState<'idle' | 'join'>(initialRoomFromUrl ? 'join' : 'idle')
   const [joinCode, setJoinCode] = useState(initialRoomFromUrl)
@@ -40,11 +45,18 @@ export default function Home({ onEnterRoom }: HomeProps) {
     setLoading(true)
     setError('')
 
+    const userId = await currentUserId()
+    if (!userId) {
+      setError('Not connected yet — please try again.')
+      setLoading(false)
+      return
+    }
+
     const roomCode = generateRoomCode()
 
     const { data: room, error: roomErr } = await supabase
       .from('rooms')
-      .insert({ room_code: roomCode, game_phase: 'lobby' })
+      .insert({ room_code: roomCode, game_phase: 'lobby', host_user_id: userId })
       .select()
       .single()
 
@@ -56,7 +68,7 @@ export default function Home({ onEnterRoom }: HomeProps) {
 
     const { data: player, error: playerErr } = await supabase
       .from('players')
-      .insert({ room_id: room.id, nickname: name, is_host: true })
+      .insert({ room_id: room.id, nickname: name, is_host: true, user_id: userId })
       .select()
       .single()
 
@@ -83,10 +95,19 @@ export default function Home({ onEnterRoom }: HomeProps) {
     setLoading(true)
     setError('')
 
+    const userId = await currentUserId()
+    if (!userId) {
+      setError('Not connected yet — please try again.')
+      setLoading(false)
+      return
+    }
+
+    const code = joinCode.trim().toUpperCase()
+
     const { data: room, error: roomErr } = await supabase
       .from('rooms')
       .select()
-      .eq('room_code', joinCode.trim().toUpperCase())
+      .eq('room_code', code)
       .single()
 
     if (roomErr || !room) {
@@ -105,11 +126,16 @@ export default function Home({ onEnterRoom }: HomeProps) {
     const existing = matches && matches.length > 0 ? matches[0] : null
 
     // Game already in progress: a matching nickname is a returning/disconnected
-    // player rejoining; a new nickname is blocked.
+    // player rejoining. Reassigning row ownership must happen server-side (the
+    // reconnecting device has a fresh auth.uid()), so route through the edge
+    // function. A new nickname is blocked.
     if (room.game_phase !== 'lobby') {
-      if (existing) {
-        recordPlayerGeo(existing.id)
-        onEnterRoom(room.room_code, existing.id, existing.is_host)
+      const { data: rejoinData } = await supabase.functions.invoke('rejoin', {
+        body: { roomCode: code, nickname: name },
+      })
+      if (rejoinData?.found) {
+        recordPlayerGeo(rejoinData.playerId)
+        onEnterRoom(room.room_code, rejoinData.playerId, rejoinData.isHost)
         return
       }
       setError('This game has already started.')
@@ -126,7 +152,7 @@ export default function Home({ onEnterRoom }: HomeProps) {
 
     const { data: player, error: playerErr } = await supabase
       .from('players')
-      .insert({ room_id: room.id, nickname: name, is_host: false })
+      .insert({ room_id: room.id, nickname: name, is_host: false, user_id: userId })
       .select()
       .single()
 

@@ -66,7 +66,9 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     )
 
-    const { error } = await supabase.from('players').update(geo).eq('id', playerId)
+    const { error } = await supabase
+      .from('player_geo')
+      .upsert({ player_id: playerId, ...geo }, { onConflict: 'player_id' })
     if (error) return json({ error: error.message }, 500)
 
     return json({ ok: true, geo }, 200)
