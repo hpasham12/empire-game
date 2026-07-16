@@ -1,15 +1,11 @@
-import type { Player } from '../../types/game'
-
 interface GameplayPhaseProps {
-  playerId: string
   isHost: boolean
-  players: Player[]
+  secretWord: string
   onEndGame: () => void
 }
 
-export default function GameplayPhase({ playerId, isHost, players, onEndGame }: GameplayPhaseProps) {
-  const me = players.find(p => p.id === playerId)
-  const mySecretWord = me?.secret_word ?? ''
+export default function GameplayPhase({ isHost, secretWord, onEndGame }: GameplayPhaseProps) {
+  const mySecretWord = secretWord
 
   return (
     <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-4">

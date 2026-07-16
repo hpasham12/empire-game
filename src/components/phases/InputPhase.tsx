@@ -22,7 +22,7 @@ export default function InputPhase({
   onSubmitWord,
   onDistributeWords,
 }: InputPhaseProps) {
-  const submittedCount = players.filter(p => p.secret_word).length
+  const submittedCount = players.filter(p => p.has_submitted).length
   const allSubmitted = players.length > 0 && submittedCount === players.length
 
   return (
@@ -81,7 +81,7 @@ export default function InputPhase({
                   className="flex items-center justify-between bg-gray-800 rounded-lg px-4 py-2"
                 >
                   <span className="text-sm font-medium">{p.nickname}</span>
-                  {p.secret_word ? (
+                  {p.has_submitted ? (
                     <span className="text-green-400 text-xs font-semibold">Ready ✓</span>
                   ) : (
                     <span className="text-gray-600 text-xs">Waiting…</span>

@@ -10,8 +10,21 @@ export default function App() {
   const [roomCode, setRoomCode] = useState('')
   const [playerId, setPlayerId] = useState('')
   const [isHost, setIsHost] = useState(false)
+  const [authReady, setAuthReady] = useState(false)
 
   useEffect(() => {
+    async function boot() {
+      // Anonymous auth gives each device a stable auth.uid() so RLS can scope
+      // rows to their owner. Reuse the persisted session when one exists.
+      const { data: sessionData } = await supabase.auth.getSession()
+      if (!sessionData.session) {
+        await supabase.auth.signInAnonymously()
+      }
+
+      await restore()
+      setAuthReady(true)
+    }
+
     async function restore() {
       const savedPlayerId = localStorage.getItem('playerId')
       const savedRoomCode = localStorage.getItem('roomCode')
@@ -53,7 +66,7 @@ export default function App() {
       setView('game')
     }
 
-    restore()
+    boot()
   }, [])
 
   function handleEnterRoom(code: string, pid: string, host: boolean) {
@@ -84,6 +97,14 @@ export default function App() {
     setPlayerId('')
     setIsHost(false)
     setView('home')
+  }
+
+  if (!authReady) {
+    return (
+      <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center">
+        <p className="text-gray-400">Connecting…</p>
+      </div>
+    )
   }
 
   if (view === 'game') {

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient'
-import type { Player } from '../types/game'
+import type { Player, PlayerSecret } from '../types/game'
 import LobbyPhase from './phases/LobbyPhase'
 import InputPhase from './phases/InputPhase'
 import ReadingPhase from './phases/ReadingPhase'
@@ -23,6 +23,8 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
   const [wordInput, setWordInput] = useState('')
   const [submitted, setSubmitted] = useState(false)
   const [roomId, setRoomId] = useState<string | null>(null)
+  // This player's private words, kept in a separate owner-only table.
+  const [mySecret, setMySecret] = useState<PlayerSecret>({ secret_word: null, assigned_read_word: null })
   const hostIdRef = useRef<string | null>(null)
 
   useEffect(() => {
@@ -43,15 +45,24 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
 
       const { data: playerList } = await supabase
         .from('players')
-        .select('id, nickname, is_host, secret_word, assigned_read_word')
+        .select('id, nickname, is_host, has_submitted')
         .eq('room_id', roomRow.id)
 
       if (playerList) {
         setPlayers(playerList)
         hostIdRef.current = playerList.find(p => p.is_host)?.id ?? null
         const me = playerList.find(p => p.id === playerId)
-        if (me?.secret_word) setSubmitted(true)
+        if (me?.has_submitted) setSubmitted(true)
       }
+
+      // Fetch this player's own words (owner-only row).
+      const { data: secretRow } = await supabase
+        .from('player_secrets')
+        .select('secret_word, assigned_read_word')
+        .eq('player_id', playerId)
+        .maybeSingle()
+      if (secretRow) setMySecret(secretRow)
+
       setLoading(false)
 
       channel = supabase
@@ -78,6 +89,10 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
             setWordInput('')
           }
         })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'player_secrets', filter: `player_id=eq.${playerId}` }, (payload) => {
+          const row = payload.new as PlayerSecret
+          setMySecret({ secret_word: row.secret_word ?? null, assigned_read_word: row.assigned_read_word ?? null })
+        })
         .subscribe()
     }
 
@@ -102,32 +117,22 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
 
   async function handleSubmitWord() {
     if (!wordInput.trim() || !players.some(p => p.id === playerId)) return
-    await supabase.from('players').update({ secret_word: wordInput.trim().toLowerCase() }).eq('id', playerId)
+    // Word goes to the owner-only secrets table; the players row only tracks a
+    // non-secret "submitted" flag so the host can see readiness.
+    await supabase.from('player_secrets').upsert(
+      { player_id: playerId, secret_word: wordInput.trim().toLowerCase() },
+      { onConflict: 'player_id' },
+    )
+    await supabase.from('players').update({ has_submitted: true }).eq('id', playerId)
+    setMySecret(prev => ({ ...prev, secret_word: wordInput.trim().toLowerCase() }))
     setSubmitted(true)
   }
 
   async function handleDistributeWords() {
     if (!roomId) return
-
-    const { data: playerList } = await supabase
-      .from('players')
-      .select('id, secret_word')
-      .eq('room_id', roomId)
-
-    if (!playerList || playerList.length === 0) return
-
-    const words = playerList.map(p => p.secret_word as string)
-    for (let i = words.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1))
-      ;[words[i], words[j]] = [words[j], words[i]]
-    }
-
-    await Promise.all(
-      playerList.map((p, i) =>
-        supabase.from('players').update({ assigned_read_word: words[i] }).eq('id', p.id)
-      )
-    )
-    await supabase.from('rooms').update({ game_phase: 'reading' }).eq('id', roomId)
+    // Shuffle + assignment happen server-side so secret words never transit
+    // other clients and the shuffle can't be tampered with.
+    await supabase.functions.invoke('distribute-words', { body: { roomId } })
   }
 
   async function handleStartGuessingPhase() {
@@ -137,8 +142,10 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
 
   async function handleEndGame() {
     if (!roomId) return
-    await supabase.from('players').update({ secret_word: null, assigned_read_word: null }).eq('room_id', roomId)
-    await supabase.from('rooms').update({ game_phase: 'lobby' }).eq('id', roomId)
+    // Clearing every player's secrets + resetting the round touches rows the
+    // host doesn't own, so it runs server-side.
+    await supabase.functions.invoke('reset-round', { body: { roomId } })
+    setMySecret({ secret_word: null, assigned_read_word: null })
     setSubmitted(false)
     setWordInput('')
   }
@@ -182,18 +189,16 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
   } else if (gamePhase === 'reading') {
     content = (
       <ReadingPhase
-        playerId={playerId}
         isHost={isHost}
-        players={players}
+        assignedWord={mySecret.assigned_read_word ?? ''}
         onStartGuessingPhase={handleStartGuessingPhase}
       />
     )
   } else if (gamePhase === 'gameplay') {
     content = (
       <GameplayPhase
-        playerId={playerId}
         isHost={isHost}
-        players={players}
+        secretWord={mySecret.secret_word ?? ''}
         onEndGame={handleEndGame}
       />
     )
