@@ -13,9 +13,9 @@ export default function App() {
 
   useEffect(() => {
     async function restore() {
-      const savedPlayerId = sessionStorage.getItem('playerId')
-      const savedRoomCode = sessionStorage.getItem('roomCode')
-      const savedIsHost = sessionStorage.getItem('isHost') === 'true'
+      const savedPlayerId = localStorage.getItem('playerId')
+      const savedRoomCode = localStorage.getItem('roomCode')
+      const savedIsHost = localStorage.getItem('isHost') === 'true'
 
       const urlParams = new URLSearchParams(window.location.search)
       const urlRoomCode = urlParams.get('room')
@@ -32,9 +32,9 @@ export default function App() {
         .single()
 
       if (!player) {
-        sessionStorage.removeItem('playerId')
-        sessionStorage.removeItem('roomCode')
-        sessionStorage.removeItem('isHost')
+        localStorage.removeItem('playerId')
+        localStorage.removeItem('roomCode')
+        localStorage.removeItem('isHost')
         const url = new URL(window.location.href)
         url.searchParams.delete('room')
         window.history.replaceState({}, '', url)
@@ -56,9 +56,9 @@ export default function App() {
     setIsHost(host)
     setView('game')
 
-    sessionStorage.setItem('playerId', pid)
-    sessionStorage.setItem('roomCode', code)
-    sessionStorage.setItem('isHost', String(host))
+    localStorage.setItem('playerId', pid)
+    localStorage.setItem('roomCode', code)
+    localStorage.setItem('isHost', String(host))
 
     const url = new URL(window.location.href)
     url.searchParams.set('room', code)
@@ -66,9 +66,9 @@ export default function App() {
   }
 
   function handleLeave() {
-    sessionStorage.removeItem('playerId')
-    sessionStorage.removeItem('roomCode')
-    sessionStorage.removeItem('isHost')
+    localStorage.removeItem('playerId')
+    localStorage.removeItem('roomCode')
+    localStorage.removeItem('isHost')
 
     const url = new URL(window.location.href)
     url.searchParams.delete('room')

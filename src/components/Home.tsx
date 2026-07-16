@@ -19,8 +19,13 @@ export default function Home({ onEnterRoom }: HomeProps) {
   const [loading, setLoading] = useState(false)
 
   async function handleCreateRoom() {
-    if (!hostNickname.trim()) {
+    const name = hostNickname.trim()
+    if (!name) {
       setError('Please enter a nickname.')
+      return
+    }
+    if (name.length < 2) {
+      setError('Nickname must be at least 2 characters.')
       return
     }
     setLoading(true)
@@ -42,7 +47,7 @@ export default function Home({ onEnterRoom }: HomeProps) {
 
     const { data: player, error: playerErr } = await supabase
       .from('players')
-      .insert({ room_id: room.id, nickname: hostNickname.trim(), is_host: true })
+      .insert({ room_id: room.id, nickname: name, is_host: true })
       .select()
       .single()
 
@@ -56,8 +61,13 @@ export default function Home({ onEnterRoom }: HomeProps) {
   }
 
   async function handleJoinRoom() {
-    if (!joinCode.trim() || !nickname.trim()) {
+    const name = nickname.trim()
+    if (!joinCode.trim() || !name) {
       setError('Please enter both a room code and a nickname.')
+      return
+    }
+    if (name.length < 2) {
+      setError('Nickname must be at least 2 characters.')
       return
     }
     setLoading(true)
@@ -75,20 +85,48 @@ export default function Home({ onEnterRoom }: HomeProps) {
       return
     }
 
+    // Look for an existing player with this nickname (case-insensitive) in the room.
+    const { data: matches } = await supabase
+      .from('players')
+      .select('id, is_host')
+      .eq('room_id', room.id)
+      .ilike('nickname', name)
+
+    const existing = matches && matches.length > 0 ? matches[0] : null
+
+    // Game already in progress: a matching nickname is a returning/disconnected
+    // player rejoining; a new nickname is blocked.
     if (room.game_phase !== 'lobby') {
+      if (existing) {
+        onEnterRoom(room.room_code, existing.id, existing.is_host)
+        return
+      }
       setError('This game has already started.')
+      setLoading(false)
+      return
+    }
+
+    // Lobby: nicknames must be unique within the room.
+    if (existing) {
+      setError('That nickname is taken in this room. Pick another.')
       setLoading(false)
       return
     }
 
     const { data: player, error: playerErr } = await supabase
       .from('players')
-      .insert({ room_id: room.id, nickname: nickname.trim(), is_host: false })
+      .insert({ room_id: room.id, nickname: name, is_host: false })
       .select()
       .single()
 
     if (playerErr || !player) {
-      setError(playerErr?.message ?? 'Failed to join room.')
+      // 23505 = unique_violation from the (room_id, lower(nickname)) index,
+      // in case another device claimed the name in a race.
+      if (playerErr?.code === '23505') {
+        setError('That nickname is taken in this room. Pick another.')
+      } else {
+        setError(playerErr?.message ?? 'Failed to join room.')
+      }
       setLoading(false)
       return
     }
