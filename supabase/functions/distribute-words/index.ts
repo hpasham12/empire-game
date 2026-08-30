@@ -1,7 +1,8 @@
 // Supabase Edge Function: distribute-words
 //
 // Host-only. Reads every player's secret word for the room, shuffles them
-// server-side, writes each shuffled word back as an assigned_read_word in
+// server-side so at most 2 players are assigned their own word, writes each
+// shuffled word back as an assigned_read_word in
 // player_secrets, and advances the room to the 'reading' phase. Runs with the
 // service role so secret words never transit other clients and the shuffle
 // cannot be tampered with.
@@ -54,12 +55,30 @@ Deno.serve(async (req) => {
       .in('player_id', ids)
 
     const rows = secrets ?? []
-    const words = rows.map(s => s.secret_word as string)
+    const own = rows.map(s => s.secret_word as string)
 
-    // Fisher–Yates shuffle.
-    for (let i = words.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1))
-      ;[words[i], words[j]] = [words[j], words[i]]
+    const shuffle = (arr: string[]) => {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1))
+        ;[arr[i], arr[j]] = [arr[j], arr[i]]
+      }
+      return arr
+    }
+    const selfReads = (arr: string[]) => arr.reduce((n, w, i) => n + (w === own[i] ? 1 : 0), 0)
+
+    // Reshuffle until at most 2 players are assigned their own word. With
+    // duplicate words a valid arrangement may not exist, so cap the attempts
+    // and fall back to the best one seen.
+    const MAX_ATTEMPTS = 10
+    let words = shuffle([...own])
+    let best = selfReads(words)
+    for (let attempt = 1; best > 2 && attempt < MAX_ATTEMPTS; attempt++) {
+      const candidate = shuffle([...own])
+      const score = selfReads(candidate)
+      if (score < best) {
+        words = candidate
+        best = score
+      }
     }
 
     await Promise.all(
