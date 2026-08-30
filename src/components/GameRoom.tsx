@@ -150,6 +150,17 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
     await supabase.functions.invoke('distribute-words', { body: { roomId } })
   }
 
+  async function handleBackToLobby() {
+    if (!roomId) return
+    if (!window.confirm('Send everyone back to the lobby? Submitted words will be cleared.')) return
+    // Same server-side reset as Play Again: clears secrets + submitted flags so
+    // latecomers can join and everyone re-enters a word.
+    await supabase.functions.invoke('reset-round', { body: { roomId } })
+    setMySecret({ secret_word: null, assigned_read_word: null })
+    setSubmitted(false)
+    setWordInput('')
+  }
+
   async function handleStartGuessingPhase() {
     if (!roomId) return
     await supabase.from('rooms').update({ game_phase: 'gameplay' }).eq('id', roomId)
@@ -207,6 +218,7 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
         onWordInputChange={setWordInput}
         onSubmitWord={handleSubmitWord}
         onDistributeWords={handleDistributeWords}
+        onBackToLobby={handleBackToLobby}
       />
     )
   } else if (gamePhase === 'reading') {
