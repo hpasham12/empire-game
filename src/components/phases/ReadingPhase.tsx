@@ -13,7 +13,7 @@ export default function ReadingPhase({ isHost, assignedWord, onStartGuessingPhas
         <div className="text-center">
           <p className="text-gray-400 text-sm uppercase tracking-widest mb-1">Your Word</p>
           <div className="bg-gray-900 border border-gray-700 rounded-2xl px-10 py-10 mt-2">
-            <p className="text-5xl font-bold text-indigo-400 tracking-wide">{myWord}</p>
+            <p className="text-5xl font-bold text-indigo-400 tracking-wide">{myWord || '…'}</p>
           </div>
           <p className="text-gray-500 text-sm mt-4">
             Read this word aloud to the group when it is your turn.

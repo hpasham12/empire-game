@@ -7,6 +7,7 @@ interface InputPhaseProps {
   category: string
   submitted: boolean
   wordInput: string
+  distributing: boolean
   onWordInputChange: (value: string) => void
   onSubmitWord: () => void
   onDistributeWords: () => void
@@ -19,6 +20,7 @@ export default function InputPhase({
   category,
   submitted,
   wordInput,
+  distributing,
   onWordInputChange,
   onSubmitWord,
   onDistributeWords,
@@ -93,10 +95,10 @@ export default function InputPhase({
             </ul>
             <button
               onClick={onDistributeWords}
-              disabled={!allSubmitted}
+              disabled={!allSubmitted || distributing}
               className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors rounded-xl py-3 font-semibold"
             >
-              Distribute Words
+              {distributing ? 'Distributing…' : 'Distribute Words'}
             </button>
             <button
               onClick={onBackToLobby}
