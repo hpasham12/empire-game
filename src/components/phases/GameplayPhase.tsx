@@ -3,10 +3,9 @@ interface GameplayPhaseProps {
   secretWord: string
   onPlayAgain: () => void
   onEndGame: () => void
-  onLeave: () => void
 }
 
-export default function GameplayPhase({ isHost, secretWord, onPlayAgain, onEndGame, onLeave }: GameplayPhaseProps) {
+export default function GameplayPhase({ isHost, secretWord, onPlayAgain, onEndGame }: GameplayPhaseProps) {
   const mySecretWord = secretWord
 
   return (
@@ -22,7 +21,7 @@ export default function GameplayPhase({ isHost, secretWord, onPlayAgain, onEndGa
         </p>
 
         <div className="w-full flex flex-col gap-3 mt-4">
-          {isHost && (
+          {isHost ? (
             <>
               <button
                 onClick={onPlayAgain}
@@ -37,13 +36,9 @@ export default function GameplayPhase({ isHost, secretWord, onPlayAgain, onEndGa
                 End Game
               </button>
             </>
+          ) : (
+            <p className="text-gray-600 text-sm">You can leave once the host ends the round.</p>
           )}
-          <button
-            onClick={onLeave}
-            className="w-full text-gray-600 hover:text-gray-400 text-sm py-2 transition-colors"
-          >
-            Leave Room
-          </button>
         </div>
       </div>
     </div>

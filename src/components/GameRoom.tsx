@@ -245,7 +245,6 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
         secretWord={mySecret.secret_word ?? ''}
         onPlayAgain={handlePlayAgain}
         onEndGame={handleEndGame}
-        onLeave={handleLeaveRoom}
       />
     )
   }
