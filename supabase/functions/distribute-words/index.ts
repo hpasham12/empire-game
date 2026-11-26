@@ -1,9 +1,10 @@
 // Supabase Edge Function: distribute-words
 //
-// Host-only. Reads every player's secret word for the room, shuffles them
-// server-side so at most 2 players are assigned their own word, writes each
-// shuffled word back as an assigned_read_word in
-// player_secrets, and advances the room to the 'reading' phase. Runs with the
+// Host-only. Claims the round by advancing the room from 'input' to 'reading'
+// (rejecting repeat calls with 409), then reads every player's secret word,
+// shuffles them server-side so at most 2 players are assigned their own word,
+// and writes each shuffled word back as an assigned_read_word in
+// player_secrets. Runs with the
 // service role so secret words never transit other clients and the shuffle
 // cannot be tampered with.
 //
@@ -45,8 +46,23 @@ Deno.serve(async (req) => {
     const { data: room } = await service.from('rooms').select('host_user_id').eq('id', roomId).single()
     if (!room || room.host_user_id !== user.id) return json({ error: 'forbidden' }, 403)
 
+    // Atomically claim the round (input -> reading) before shuffling. Concurrent
+    // calls interleave their per-row writes and produce duplicate / missing
+    // assignments, so only the call that flips the phase may proceed.
+    const { data: claimed } = await service
+      .from('rooms')
+      .update({ game_phase: 'reading' })
+      .eq('id', roomId)
+      .eq('game_phase', 'input')
+      .select('id')
+    if (!claimed || claimed.length === 0) return json({ error: 'words already distributed' }, 409)
+    const releaseClaim = () => service.from('rooms').update({ game_phase: 'input' }).eq('id', roomId)
+
     const { data: playerRows } = await service.from('players').select('id').eq('room_id', roomId)
-    if (!playerRows || playerRows.length === 0) return json({ error: 'no players' }, 400)
+    if (!playerRows || playerRows.length === 0) {
+      await releaseClaim()
+      return json({ error: 'no players' }, 400)
+    }
 
     const ids = playerRows.map(p => p.id)
     const { data: secrets } = await service
@@ -81,12 +97,16 @@ Deno.serve(async (req) => {
       }
     }
 
-    await Promise.all(
+    const results = await Promise.all(
       rows.map((s, i) =>
         service.from('player_secrets').update({ assigned_read_word: words[i] }).eq('player_id', s.player_id)
       )
     )
-    await service.from('rooms').update({ game_phase: 'reading' }).eq('id', roomId)
+    const failed = results.find(r => r.error)
+    if (failed) {
+      await releaseClaim()
+      return json({ error: failed.error!.message }, 500)
+    }
 
     return json({ ok: true }, 200)
   } catch (e) {

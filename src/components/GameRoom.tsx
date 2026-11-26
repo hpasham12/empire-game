@@ -23,6 +23,7 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
   const [wordInput, setWordInput] = useState('')
   const [submitted, setSubmitted] = useState(false)
   const [roomId, setRoomId] = useState<string | null>(null)
+  const [distributing, setDistributing] = useState(false)
   // This player's private words, kept in a separate owner-only table.
   const [mySecret, setMySecret] = useState<PlayerSecret>({ secret_word: null, assigned_read_word: null })
 
@@ -144,10 +145,17 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
   }
 
   async function handleDistributeWords() {
-    if (!roomId) return
+    if (!roomId || distributing) return
     // Shuffle + assignment happen server-side so secret words never transit
-    // other clients and the shuffle can't be tampered with.
-    await supabase.functions.invoke('distribute-words', { body: { roomId } })
+    // other clients and the shuffle can't be tampered with. A second run would
+    // overwrite assignments mid-round, so block repeat taps while in flight.
+    setDistributing(true)
+    try {
+      const { error } = await supabase.functions.invoke('distribute-words', { body: { roomId } })
+      if (!error) setGamePhase('reading')
+    } finally {
+      setDistributing(false)
+    }
   }
 
   async function handleBackToLobby() {
@@ -217,6 +225,7 @@ export default function GameRoom({ roomCode, playerId, isHost, onLeave }: GameRo
         wordInput={wordInput}
         onWordInputChange={setWordInput}
         onSubmitWord={handleSubmitWord}
+        distributing={distributing}
         onDistributeWords={handleDistributeWords}
         onBackToLobby={handleBackToLobby}
       />
