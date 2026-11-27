@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { QRCodeSVG } from 'qrcode.react'
 import type { Player } from '../../types/game'
 
 interface LobbyPhaseProps {
@@ -25,6 +26,7 @@ export default function LobbyPhase({
   onLeave,
 }: LobbyPhaseProps) {
   const [copied, setCopied] = useState(false)
+  const [showQr, setShowQr] = useState(false)
 
   // Build a link to the join screen with the room code prefilled. Uses the
   // Vite base path so it works when served from the /empire-game/ subdirectory.
@@ -66,12 +68,34 @@ export default function LobbyPhase({
           <p className="text-gray-400 text-sm uppercase tracking-widest mb-1">Room Code</p>
           <p className="text-6xl font-bold tracking-[0.2em] text-indigo-400">{roomCode}</p>
           <p className="text-gray-500 text-sm mt-2">Share this code with your friends</p>
-          <button
-            onClick={handleShare}
-            className="mt-4 inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 transition-colors rounded-xl px-5 py-2.5 font-semibold text-sm"
-          >
-            {copied ? 'Link copied!' : 'Share Room'}
-          </button>
+          <div className="mt-4 flex items-center justify-center gap-2">
+            <button
+              onClick={handleShare}
+              className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 transition-colors rounded-xl px-5 py-2.5 font-semibold text-sm"
+            >
+              {copied ? 'Link copied!' : 'Share Room'}
+            </button>
+            <button
+              onClick={() => setShowQr(v => !v)}
+              aria-expanded={showQr}
+              className="inline-flex items-center gap-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 transition-colors rounded-xl px-5 py-2.5 font-semibold text-sm"
+            >
+              {showQr ? 'Hide QR Code' : 'Show QR Code'}
+            </button>
+          </div>
+          {showQr && (
+            <div className="mt-4 flex flex-col items-center">
+              <div className="bg-white p-3 rounded-xl">
+                <QRCodeSVG
+                  value={buildShareUrl()}
+                  size={200}
+                  marginSize={1}
+                  title={`Join room ${roomCode}`}
+                />
+              </div>
+              <p className="text-gray-500 text-xs mt-2">Scan to join this room</p>
+            </div>
+          )}
         </div>
 
         <div className="bg-gray-900 rounded-2xl border border-gray-800 p-5 mb-5">
